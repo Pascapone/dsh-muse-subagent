@@ -1,0 +1,46 @@
+{
+  "name": "@local/dsh-muse-code",
+  "version": "0.1.0",
+  "description": "One-shot Muse Code subagent provider for DeepSeek Harness",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./main.js",
+  "exports": {
+    ".": "./main.js",
+    "./tool": "./tool-platform.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "main.js",
+    "runtime.js",
+    "tool-platform.js",
+    "cordis.patch.yml",
+    "README.md",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "icon": "./icon.svg",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/dsh-subagent": "0.1.7-rc.1",
+    "@deepseek-ai/dsh-subprocess": "0.1.7-rc.1"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.18.4"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "test:real": "node tests/real-muse.mjs",
+    "check": "node --check main.js && node --check runtime.js && node --check tool-platform.js"
+  }
+}

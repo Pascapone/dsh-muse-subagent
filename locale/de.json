@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Muse-Code-Subagent",
+    "description": "Delegiert einmalige Coding-Aufgaben an eine authentifizierte Muse-Code-CLI."
+  }
+}

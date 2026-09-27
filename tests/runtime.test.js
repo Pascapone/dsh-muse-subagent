@@ -66,9 +66,19 @@ test('CLI arguments enforce JSON, safe approval, workspace and prompt file', () 
     extraArgs: [],
     noSessionLog: true,
     trustWorkspace: true,
-  }, '/workspace', '/tmp/prompt.txt')
+  }, '/workspace', '/tmp/prompt.txt', 'workspace-write')
   assert.deepEqual(args, [
     'exec', '--json', '--no-session-log', '--approval-mode', 'never',
     '--trust-workspace', '--workspace', '/workspace', '--prompt-file', '/tmp/prompt.txt',
   ])
+  const config = { approvalMode: 'never', extraArgs: [], noSessionLog: true, trustWorkspace: true }
+  const full = museExecArguments(config, '/slot', '/tmp/prompt', 'danger-full-access')
+  assert(full.includes('--yolo'))
+  assert(!full.includes('--approval-mode'))
+  assert.deepEqual(museExecArguments(config, '/slot', '/tmp/prompt', 'read-only').slice(0, 7), [
+    'exec', '--json', '--no-session-log', '--permission-profile', ':read-only', '--disable-shell', '--disable-write',
+  ])
+  assert.throws(() => museExecArguments({ ...config, extraArgs: ['--yolo'] }, '/slot', '/tmp/prompt', 'workspace-write'), /extraArgs/)
+  assert.throws(() => museExecArguments({ ...config, approvalMode: 'on-request' }, '/slot', '/tmp/prompt', 'workspace-write'), /approvalMode never/)
+  assert.throws(() => museExecArguments(config, '/slot', '/tmp/prompt', 'unknown'), /unsupported file policy/)
 })

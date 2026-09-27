@@ -78,7 +78,7 @@ try {
     parent: { session: { header: { cwd: process.cwd() } } },
     prompt: [{ type: 'text', text: `Reply with exactly: ${NONCE}` }],
     signal: controller.signal,
-  }, config, process.cwd())
+  }, config, process.cwd(), 'workspace-write')
   const result = await run.result
   assert.equal(result.stopReason, 'completed')
   assert.equal(result.output.length, 1)

@@ -167,11 +167,19 @@ function appendTail(current, chunk) {
   return next.length <= STDERR_LIMIT ? next : next.slice(next.length - STDERR_LIMIT)
 }
 
-export function museExecArguments(config, workspace, promptFile) {
+export function museExecArguments(config, workspace, promptFile, mode) {
   const args = ['exec', '--json']
   if (config.noSessionLog) args.push('--no-session-log')
-  if (config.approvalMode) args.push('--approval-mode', config.approvalMode)
-  if (config.trustWorkspace) args.push('--trust-workspace')
+  if (mode === 'danger-full-access') args.push('--yolo')
+  else if (mode === 'read-only') args.push('--permission-profile', ':read-only', '--disable-shell', '--disable-write')
+  else if (mode === 'workspace-write') {
+    if (config.approvalMode !== 'never') throw new Error(`${PLUGIN}: sandboxed runs require approvalMode never`)
+    args.push('--approval-mode', 'never')
+  } else throw new Error(`${PLUGIN}: unsupported file policy: ${mode}`)
+  if (mode !== 'danger-full-access' && config.extraArgs.length > 0) {
+    throw new Error(`${PLUGIN}: extraArgs cannot be used with a sandboxed Muse run`)
+  }
+  if (config.trustWorkspace && mode === 'workspace-write') args.push('--trust-workspace')
   if (config.provider) args.push('--provider', config.provider)
   if (config.model) args.push('--model', config.model)
   if (config.preset) args.push('--preset', config.preset)
@@ -194,11 +202,11 @@ function wslEnvironment(env) {
     : { ...env, WSLENV: names.join(':') }
 }
 
-async function resolveInvocation(ctx, config, cwd, promptFile, signal) {
+async function resolveInvocation(ctx, config, cwd, promptFile, signal, mode) {
   const native = async () => {
     const executable = await ctx.subprocess.resolveExecutable(config.command, config.env, signal)
     return {
-      argv: [executable, ...museExecArguments(config, cwd, promptFile)],
+      argv: [executable, ...museExecArguments(config, cwd, promptFile, mode)],
       env: config.env,
     }
   }
@@ -211,7 +219,7 @@ async function resolveInvocation(ctx, config, cwd, promptFile, signal) {
     const prefix = [executable]
     if (effectiveDistribution) prefix.push('--distribution', effectiveDistribution)
     prefix.push('--cd', cwd, '--exec')
-    prefix.push(config.wslCommand, ...museExecArguments(config, workspace.path, wslPrompt))
+    prefix.push(config.wslCommand, ...museExecArguments(config, workspace.path, wslPrompt, mode))
     return { argv: prefix, env: wslEnvironment(config.env) }
   }
 
@@ -230,7 +238,9 @@ async function removeTemp(path) {
   await rm(path, { force: true, recursive: true })
 }
 
-export async function startMuseRun(ctx, request, config, cwd) {
+export async function startMuseRun(ctx, request, config, cwd, mode) {
+  // Validate the policy before creating a prompt file or spawning a child.
+  museExecArguments(config, cwd, 'prompt.txt', mode)
   const prompt = textTask(request.prompt)
   if (request.signal.aborted) {
     throw new Error(`${PLUGIN}: request was aborted before Muse startup`)
@@ -247,7 +257,7 @@ export async function startMuseRun(ctx, request, config, cwd) {
 
   let invocation
   try {
-    invocation = await resolveInvocation(ctx, config, cwd, promptFile, request.signal)
+    invocation = await resolveInvocation(ctx, config, cwd, promptFile, request.signal, mode)
   } catch (error) {
     await removeTemp(tempDir).catch(() => {})
     throw new Error(`${PLUGIN}: could not resolve Muse executable`, { cause: error })

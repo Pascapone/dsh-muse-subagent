@@ -8,17 +8,18 @@ export const ORIGINAL_DESCRIPTION = 'Delegate a self-contained task to a subagen
 export const ORIGINAL_PROMPT_DESCRIPTION = 'The complete, self-contained task for the subagent. It does not share this conversation\'s context, so include everything it needs.'
 
 const WINDOWS_WSL_NOTE = ' In this deployment, Muse Code runs only inside WSL and accesses the Windows workspace through /mnt/c/... paths; paths and installed runtimes therefore reflect its Linux environment.'
+const PERMISSION_NOTE = ' Muse inherits the calling Agent’s file-policy tier: restricted Agents stay sandboxed in their workspace; full-access Agents start unrestricted by default and may set sandboxed: true.'
 const WINDOWS_PROMPT_NOTE = ' Muse Code runs inside WSL and sees WSL/Linux paths for the Windows workspace.'
 
 export function toolWording(platform = process.platform) {
   if (platform !== 'win32') {
     return {
-      description: ORIGINAL_DESCRIPTION,
+      description: ORIGINAL_DESCRIPTION + PERMISSION_NOTE,
       promptDescription: ORIGINAL_PROMPT_DESCRIPTION,
     }
   }
   return {
-    description: ORIGINAL_DESCRIPTION + WINDOWS_WSL_NOTE,
+    description: ORIGINAL_DESCRIPTION + WINDOWS_WSL_NOTE + PERMISSION_NOTE,
     promptDescription: ORIGINAL_PROMPT_DESCRIPTION + WINDOWS_PROMPT_NOTE,
   }
 }
@@ -101,6 +102,14 @@ export function apply(ctx, config) {
           type: 'string',
           description: wording.promptDescription,
         },
+        sandboxed: {
+          type: 'boolean',
+          description: 'Constrain Muse to its workspace even when the calling Agent has full access. Restricted Agents are always sandboxed.',
+        },
+        workspace: {
+          type: 'string',
+          description: 'Optional absolute path to another workspace; requires the calling Agent to have danger-full-access. Defaults to the caller’s workspace.',
+        },
         ...(backgroundEnabled ? {
           run_in_background: {
             type: 'boolean',
@@ -125,6 +134,12 @@ export function apply(ctx, config) {
       if (typeof args.description !== 'string' || typeof args.prompt !== 'string') {
         throw new Error('Muse subagent requires string description and prompt arguments')
       }
+      if (args.sandboxed !== undefined && typeof args.sandboxed !== 'boolean') {
+        throw new Error('sandboxed must be a boolean')
+      }
+      if (args.workspace !== undefined && typeof args.workspace !== 'string') {
+        throw new Error('workspace must be a string')
+      }
       const parent = exec.agent
       if (!parent) throw new Error('Muse subagent tool requires a calling agent')
       if (!backgroundEnabled && args.run_in_background === true) {
@@ -135,6 +150,7 @@ export function apply(ctx, config) {
         label: args.description,
         prompt: [{ type: 'text', text: args.prompt }],
         parent,
+        museOptions: { sandboxed: args.sandboxed, workspace: args.workspace },
       }
 
       if (args.run_in_background === true) {

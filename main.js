@@ -1,3 +1,5 @@
+import { stat } from 'node:fs/promises'
+import { isAbsolute } from 'node:path'
 import z from '@deepseek-ai/schemastery'
 import {
   NO_START_CAPABILITIES,
@@ -8,7 +10,7 @@ import { startMuseRun } from './runtime.js'
 import { apply as applyMuseTool } from './tool-platform.js'
 
 export const name = 'subagent-muse'
-export const inject = ['subagents', 'subprocess', 'tools']
+export const inject = ['subagents', 'subprocess', 'tools', 'sandboxPolicy']
 
 const RUNTIMES = ['auto', 'native', 'wsl']
 const APPROVAL_MODES = ['untrusted', 'on-request', 'never']
@@ -48,12 +50,29 @@ class MuseProvider {
   }
 
   async start(request) {
-    const cwd = resolveChildCwd(
-      'dsh-muse-subagent',
-      undefined,
-      request.parent.session.header.cwd,
+    const policy = this.ctx.sandboxPolicy.resolve({ session: request.parent.session })
+    const options = request.museOptions ?? {}
+    if (options.sandboxed !== undefined && typeof options.sandboxed !== 'boolean') {
+      throw new Error('dsh-muse-subagent: sandboxed must be a boolean')
+    }
+    if (options.workspace !== undefined && (typeof options.workspace !== 'string' || !isAbsolute(options.workspace))) {
+      throw new Error('dsh-muse-subagent: workspace must be an absolute path')
+    }
+    if (policy.mode !== 'danger-full-access' && options.sandboxed === false) {
+      throw new Error('dsh-muse-subagent: restricted agents cannot disable the Muse sandbox')
+    }
+    if (policy.mode !== 'danger-full-access' && options.workspace !== undefined) {
+      throw new Error('dsh-muse-subagent: only full-access agents can select another workspace')
+    }
+    const cwd = options.workspace ?? resolveChildCwd(
+      'dsh-muse-subagent', undefined, request.parent.session.header.cwd,
     )
-    return await startMuseRun(this.ctx, request, this.config, cwd)
+    if (options.workspace !== undefined && !(await stat(cwd)).isDirectory()) {
+      throw new Error('dsh-muse-subagent: workspace must be a directory')
+    }
+    const mode = options.sandboxed === true && policy.mode === 'danger-full-access'
+      ? 'workspace-write' : policy.mode
+    return await startMuseRun(this.ctx, request, this.config, cwd, mode)
   }
 }
 

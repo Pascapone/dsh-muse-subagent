@@ -11,10 +11,9 @@ test('tool wording adds WSL context only on Windows', () => {
   assert.match(windows.promptDescription, /WSL\/Linux paths/)
 
   for (const platform of ['linux', 'darwin']) {
-    assert.deepEqual(toolWording(platform), {
-      description: ORIGINAL_DESCRIPTION,
-      promptDescription: ORIGINAL_PROMPT_DESCRIPTION,
-    })
+    assert.equal(toolWording(platform).description.startsWith(ORIGINAL_DESCRIPTION), true)
+    assert.match(toolWording(platform).description, /full-access Agents start unrestricted/)
+    assert.equal(toolWording(platform).promptDescription, ORIGINAL_PROMPT_DESCRIPTION)
   }
 })
 
@@ -32,6 +31,7 @@ test('Muse tool registers and executes a foreground run', async () => {
       async start(provider, request) {
         assert.equal(provider, 'muse')
         assert.equal(request.prompt[0].text, 'do the task')
+        assert.deepEqual(request.museOptions, { sandboxed: true, workspace: '/slot' })
         return {
           id: 'muse-test-run',
           result: Promise.resolve({
@@ -52,7 +52,7 @@ test('Muse tool registers and executes a foreground run', async () => {
   assert.match(definition.parameters.properties.prompt.description, /WSL\/Linux paths/)
 
   const value = await definition.execute(
-    { description: 'test task', prompt: 'do the task' },
+    { description: 'test task', prompt: 'do the task', sandboxed: true, workspace: '/slot' },
     { agent: { id: 'parent' }, signal: new AbortController().signal },
   )
   assert.deepEqual(value, {

@@ -190,6 +190,19 @@ export function museExecArguments(config, workspace, promptFile, mode) {
   return args
 }
 
+export function museRunEnvironment(configEnv, request) {
+  const env = { ...(configEnv ?? {}) }
+  const sessionId = request?.parent?.session?.header?.id
+  if (typeof sessionId === 'string' && sessionId.length > 0) {
+    // Authoritative per-run attribution; overrides any configured spoof.
+    env.DSH_SESSION_ID = sessionId
+  } else {
+    // No attributable session: drop any configured value rather than spoof.
+    delete env.DSH_SESSION_ID
+  }
+  return env
+}
+
 function wslEnvironment(env) {
   const names = Object.keys(env)
   for (const name of names) {
@@ -202,12 +215,13 @@ function wslEnvironment(env) {
     : { ...env, WSLENV: names.join(':') }
 }
 
-async function resolveInvocation(ctx, config, cwd, promptFile, signal, mode) {
+export async function resolveInvocation(ctx, config, cwd, promptFile, signal, mode, request) {
+  const runEnv = museRunEnvironment(config.env, request)
   const native = async () => {
-    const executable = await ctx.subprocess.resolveExecutable(config.command, config.env, signal)
+    const executable = await ctx.subprocess.resolveExecutable(config.command, runEnv, signal)
     return {
       argv: [executable, ...museExecArguments(config, cwd, promptFile, mode)],
-      env: config.env,
+      env: runEnv,
     }
   }
 
@@ -220,7 +234,7 @@ async function resolveInvocation(ctx, config, cwd, promptFile, signal, mode) {
     if (effectiveDistribution) prefix.push('--distribution', effectiveDistribution)
     prefix.push('--cd', cwd, '--exec')
     prefix.push(config.wslCommand, ...museExecArguments(config, workspace.path, wslPrompt, mode))
-    return { argv: prefix, env: wslEnvironment(config.env) }
+    return { argv: prefix, env: wslEnvironment(runEnv) }
   }
 
   if (config.runtime === 'native') return native()
@@ -257,7 +271,7 @@ export async function startMuseRun(ctx, request, config, cwd, mode) {
 
   let invocation
   try {
-    invocation = await resolveInvocation(ctx, config, cwd, promptFile, request.signal, mode)
+    invocation = await resolveInvocation(ctx, config, cwd, promptFile, request.signal, mode, request)
   } catch (error) {
     await removeTemp(tempDir).catch(() => {})
     throw new Error(`${PLUGIN}: could not resolve Muse executable`, { cause: error })

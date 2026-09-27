@@ -8,6 +8,7 @@ A persistent DeepSeek Harness bundle that exposes an authenticated Muse Code CLI
 - Adds a dedicated static `subagent_muse` tool. Its model-facing description mentions the WSL/Windows-filesystem boundary only when the Harness host runs on Windows.
 - Runs `muse exec --json` in the parent session's workspace, applying the caller's DSH file policy at each delegation. Restricted calls run with Muse's WSL sandbox; full-access calls run unrestricted unless `sandboxed: true`.
 - Uses the Harness `ctx.subprocess` service for environment scrubbing, process ownership, cancellation, and teardown. Native execution gets the full managed-range guarantee; WSL has the boundary documented below.
+- For each run, forwards the parent Session's `DSH_SESSION_ID` (including through `WSLENV`) so repository-local Git hooks can attribute worktrees. This is advisory provenance, not a security boundary; a child process can change its own environment.
 - Returns only Muse's authoritative final text. Raw JSONL events, stderr, tool traffic, reasoning, and workspace diffs stay out of the parent model context.
 - Supports foreground and generic Harness background-job execution.
 

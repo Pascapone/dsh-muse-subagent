@@ -1,5 +1,5 @@
 # Register the Muse provider and its dedicated model-facing delegation tool.
 - insert:
     - id: subagent-muse
-      name: '@local/dsh-muse-code'
+      name: '@pascapone/dsh-muse-code'
       config: {}

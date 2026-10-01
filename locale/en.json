@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Muse Code Subagent",
+    "title": "@pascapone/dsh-muse-code",
     "description": "Delegates one-shot coding tasks to an authenticated Muse Code CLI."
   }
 }

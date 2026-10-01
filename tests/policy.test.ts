@@ -1,23 +1,25 @@
+import type { MuseContext } from '../types.js'
+import type { SpawnSpec, TestTool, TestProvider, TestRequest } from './fixture-types.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { PassThrough } from 'node:stream'
 import { tmpdir } from 'node:os'
 import { apply } from '../main.js'
 
-function harness(mode) {
-  let provider, tool, spawned
+function harness(mode: string) {
+  let provider!: TestProvider, tool!: TestTool, spawned!: SpawnSpec
   const ctx = {
-    sandboxPolicy: { resolve: ({ session }) => {
+    sandboxPolicy: { resolve: ({ session }: { session: { header: { cwd: string } } }) => {
       assert.equal(session.header.cwd, process.cwd())
       return { mode, workspaceRoot: session.header.cwd }
     } },
     subagents: {
-      registerProvider(value) { provider = value },
-      start(_name, request) { return provider.start(request) },
+      registerProvider(value: TestProvider) { provider = value },
+      start(_name: string, request: TestRequest) { return provider.start(request) },
     },
     subprocess: {
-      resolveExecutable: async command => command,
-      spawn(spec) {
+      resolveExecutable: async (command: string) => command,
+      spawn(spec: SpawnSpec) {
         spawned = spec
         const stdout = new PassThrough()
         const stderr = new PassThrough()
@@ -29,12 +31,12 @@ function harness(mode) {
           terminate() {}, waitForExit: async () => true }
       },
     },
-    tools: { register(value) { tool = value } },
+    tools: { register(value: TestTool) { tool = value } },
     logger: { warn() {} },
   }
-  apply(ctx, {})
+  apply(ctx as unknown as MuseContext, {})
   const exec = { agent: { id: 'test', session: { header: { cwd: process.cwd() } } }, signal: new AbortController().signal }
-  const call = options => tool.execute({ description: 'policy test', prompt: 'ping', ...options }, exec)
+  const call = (options: Record<string, unknown>) => tool.execute({ description: 'policy test', prompt: 'ping', ...options }, exec)
   return { call, get spawned() { return spawned } }
 }
 

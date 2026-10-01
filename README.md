@@ -61,7 +61,7 @@ Example provider override:
 
 ```yaml
 - id: subagent-muse
-  name: '@local/dsh-muse-code'
+  name: '@pascapone/dsh-muse-code'
   config:
     runtime: wsl
     wslDistribution: Ubuntu
@@ -76,9 +76,12 @@ Install this directory as a bundle with the Harness Plugin Manager. The plugin d
 ## Tests
 
 ```sh
-pnpm test       # parser, argument, task, and path-mapping unit tests
-pnpm test:real  # authenticated real-model nonce through the provider runtime
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm run check  # strict types, build, unchanged offline tests and boundary checks
+pnpm test:real  # separate authenticated real-model nonce; never part of check
 ```
+
+Runtime, tools and tests are TypeScript. `tsc` emits runtime JavaScript and declarations under `lib`; tests, including the real-test helper, run from `.test-build` as JavaScript, so Node 20 does not need native TypeScript support. Published DSH peer packages may require a newer Node runtime than this plugin's own Node ≥20 baseline. No install hook builds the plugin or invokes Muse. Offline migration checks pass 11/11 (nine original cases and two added boundary/disposal checks); this is not a real Muse/WSL acceptance.
 
 The real test auto-falls back from native Windows discovery to Muse inside the configured `Ubuntu` WSL distribution.
 

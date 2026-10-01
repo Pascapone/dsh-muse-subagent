@@ -1,3 +1,4 @@
+import type { MuseContext, MuseConfig, MuseRequest } from './types.js'
 import { stat } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 import z from '@deepseek-ai/schemastery'
@@ -18,7 +19,7 @@ const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 
 const DEFAULT_DISPOSE_GRACE_MS = 3_000
 const MAX_TIMER_DELAY_MS = 2_147_483_647
 
-export const Config = z.object({
+export const Config: z<Partial<MuseConfig>> = z.object({
   providerName: z.string().min(1).default('muse'),
   toolName: z.string().min(1).default('subagent_muse'),
   enableRunInBackground: z.boolean().default(true),
@@ -40,16 +41,19 @@ export const Config = z.object({
 })
 
 class MuseProvider {
+  declare name: string
+  declare ctx: MuseContext
+  declare config: MuseConfig
   capabilities = NO_START_CAPABILITIES
   inheritsParentContext = false
 
-  constructor(providerName, ctx, config) {
+  constructor(providerName: string, ctx: MuseContext, config: MuseConfig) {
     this.name = providerName
     this.ctx = ctx
     this.config = config
   }
 
-  async start(request) {
+  async start(request: MuseRequest) {
     const policy = this.ctx.sandboxPolicy.resolve({ session: request.parent.session })
     const options = request.museOptions ?? {}
     if (options.sandboxed !== undefined && typeof options.sandboxed !== 'boolean') {
@@ -76,8 +80,8 @@ class MuseProvider {
   }
 }
 
-export function apply(ctx, config) {
-  const resolved = {
+export function apply(ctx: MuseContext, config: Partial<MuseConfig>) {
+  const resolved: MuseConfig = {
     providerName: config.providerName ?? 'muse',
     toolName: config.toolName ?? 'subagent_muse',
     enableRunInBackground: config.enableRunInBackground ?? true,

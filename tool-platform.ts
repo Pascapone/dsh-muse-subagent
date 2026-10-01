@@ -1,3 +1,7 @@
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent'
+import type { JobOutcome } from '@deepseek-ai/dsh-jobs'
+import type { MuseContext, ToolArgs, ToolConfig, ToolOutput } from './types.js'
 import z from '@deepseek-ai/schemastery'
 import { settleRun } from '@deepseek-ai/dsh-subagent'
 
@@ -11,7 +15,7 @@ const WINDOWS_WSL_NOTE = ' In this deployment, Muse Code runs only inside WSL an
 const PERMISSION_NOTE = ' Muse inherits the calling Agent’s file-policy tier: restricted Agents stay sandboxed in their workspace; full-access Agents start unrestricted by default and may set sandboxed: true.'
 const WINDOWS_PROMPT_NOTE = ' Muse Code runs inside WSL and sees WSL/Linux paths for the Windows workspace.'
 
-export function toolWording(platform = process.platform) {
+export function toolWording(platform: string = process.platform) {
   if (platform !== 'win32') {
     return {
       description: ORIGINAL_DESCRIPTION + PERMISSION_NOTE,
@@ -30,14 +34,14 @@ export const Config = z.object({
   enableRunInBackground: z.boolean().default(true),
 })
 
-function textOutput(blocks) {
+function textOutput(blocks: readonly ContentBlock[]) {
   return blocks
-    .filter(block => block?.type === 'text' && typeof block.text === 'string')
+    .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block?.type === 'text' && typeof block.text === 'string')
     .map(block => block.text)
     .join('')
 }
 
-function failedResult(result) {
+function failedResult(result: SubagentResult) {
   if (result.stopReason === 'completed') return undefined
   const diagnostic = result.diagnostic ? `\nDiagnostic: ${result.diagnostic}` : ''
   const partial = textOutput(result.output)
@@ -45,13 +49,13 @@ function failedResult(result) {
   return `Muse subagent run ended abnormally (${String(result.stopReason)})${diagnostic}${partialText}`
 }
 
-async function settleForeground(run) {
+async function settleForeground(run: SubagentRun) {
   const [execution] = await Promise.allSettled([
     run.result.then(result => {
       const error = failedResult(result)
       if (error) throw new Error(error)
       return {
-        kind: 'foreground',
+        kind: 'foreground' as const,
         runId: run.id,
         output: result.output,
       }
@@ -71,7 +75,7 @@ async function settleForeground(run) {
   return execution.value
 }
 
-async function settleBackgroundStart(start, signal) {
+async function settleBackgroundStart(start: Promise<SubagentRun>, signal: AbortSignal): Promise<JobOutcome> {
   try {
     return await settleRun(await start)
   } catch (error) {
@@ -81,7 +85,7 @@ async function settleBackgroundStart(start, signal) {
   }
 }
 
-export function apply(ctx, config) {
+export function apply(ctx: Pick<MuseContext, 'tools' | 'subagents' | 'get'>, config: ToolConfig) {
   const provider = config.provider ?? 'muse'
   const toolName = config.toolName ?? 'subagent_muse'
   const backgroundEnabled = config.enableRunInBackground !== false
@@ -121,16 +125,21 @@ export function apply(ctx, config) {
     },
     output: {
       schema: { type: 'object' },
-      render: (_args, value) => [{
+      render: (_args, raw) => {
+        // Same-process canonical result is authored by this tool's execute, not external JSON.
+        const value = raw as unknown as ToolOutput
+        return [{
         type: 'text',
         text: value.kind === 'background'
           ? `started background Muse subagent job ${value.jobId}`
           : textOutput(value.output),
-      }],
+        }]
+      },
     },
     isConcurrencySafe: () => true,
-    async execute(args, exec) {
-      if (!args || typeof args !== 'object') throw new Error('Muse subagent arguments must be an object')
+    async execute(input, exec): Promise<ToolOutput> {
+      if (!input || typeof input !== 'object') throw new Error('Muse subagent arguments must be an object')
+      const args = input as Record<string, unknown>
       if (typeof args.description !== 'string' || typeof args.prompt !== 'string') {
         throw new Error('Muse subagent requires string description and prompt arguments')
       }
@@ -148,7 +157,7 @@ export function apply(ctx, config) {
 
       const request = {
         label: args.description,
-        prompt: [{ type: 'text', text: args.prompt }],
+        prompt: [{ type: 'text' as const, text: args.prompt }],
         parent,
         museOptions: { sandboxed: args.sandboxed, workspace: args.workspace },
       }

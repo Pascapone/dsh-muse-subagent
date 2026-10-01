@@ -1,3 +1,8 @@
+import type { Readable } from 'node:stream'
+import type { SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent'
+import type { Attribution, ExecConfig, InvocationConfig, RunConfig, OutputState, MuseRequest, RunContext, ResolveContext } from './types.js'
 import { randomUUID } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -12,16 +17,17 @@ const STDERR_LIMIT = 8 * 1024
 const MAX_JSONL_LINE_BYTES = 16 * 1024 * 1024
 const MAX_OUTPUT_BYTES = 8 * 1024 * 1024
 
-function asError(value) {
+function asError(value: unknown) {
   return value instanceof Error ? value : new Error(String(value))
 }
 
-export function textTask(prompt) {
+export function textTask(prompt: unknown) {
   if (!Array.isArray(prompt) || prompt.length === 0) {
     throw new Error(`${PLUGIN}: the one-shot task must contain only text blocks`)
   }
   const texts = []
-  for (const block of prompt) {
+  for (const value of prompt as unknown[]) {
+    const block = value && typeof value === 'object' ? value as Record<string, unknown> : undefined
     if (block?.type !== 'text' || typeof block.text !== 'string') {
       throw new Error(`${PLUGIN}: the one-shot task must contain only text blocks`)
     }
@@ -33,7 +39,7 @@ export function textTask(prompt) {
   return texts.join('')
 }
 
-export function windowsPathToWslDetails(path, distribution) {
+export function windowsPathToWslDetails(path: string, distribution?: string) {
   const drive = /^([A-Za-z]):[\\/](.*)$/.exec(path)
   if (drive) {
     const rest = drive[2].replaceAll('\\', '/').replace(/^\/+/, '')
@@ -57,11 +63,11 @@ export function windowsPathToWslDetails(path, distribution) {
   throw new Error(`${PLUGIN}: cannot map path to WSL: ${path}`)
 }
 
-export function windowsPathToWsl(path, distribution) {
+export function windowsPathToWsl(path: string, distribution?: string) {
   return windowsPathToWslDetails(path, distribution).path
 }
 
-export function createOutputState() {
+export function createOutputState(): OutputState {
   return {
     deltaChunks: [],
     deltaBytes: 0,
@@ -70,48 +76,49 @@ export function createOutputState() {
   }
 }
 
-export function applyMuseJsonLine(line, state) {
+export function applyMuseJsonLine(line: string, state: OutputState) {
   if (Buffer.byteLength(line, 'utf8') > MAX_JSONL_LINE_BYTES) {
     throw new Error(`${PLUGIN}: Muse JSONL record exceeded ${MAX_JSONL_LINE_BYTES} bytes`)
   }
   const trimmed = line.trim()
   if (trimmed.length === 0) return
 
-  let record
+  let record: unknown
   try {
     record = JSON.parse(trimmed)
   } catch (cause) {
     throw new Error(`${PLUGIN}: Muse emitted invalid JSONL on stdout`, { cause })
   }
 
-  const payload = record?.payload
+  const payload = record && typeof record === 'object' ? (record as { payload?: unknown }).payload : undefined
   if (!payload || typeof payload !== 'object') return
+  const data = payload as Record<string, unknown>
 
-  if (payload.kind === 'run_output_delta' && typeof payload.text === 'string') {
-    const bytes = Buffer.byteLength(payload.text, 'utf8')
+  if (data.kind === 'run_output_delta' && typeof data.text === 'string') {
+    const bytes = Buffer.byteLength(data.text, 'utf8')
     if (state.deltaBytes + bytes > MAX_OUTPUT_BYTES) {
       throw new Error(`${PLUGIN}: Muse answer exceeded ${MAX_OUTPUT_BYTES} bytes`)
     }
-    state.deltaChunks.push(payload.text)
+    state.deltaChunks.push(data.text)
     state.deltaBytes += bytes
     return
   }
 
-  if (payload.kind === 'run_terminal') {
-    if (typeof payload.terminal !== 'string') {
+  if (data.kind === 'run_terminal') {
+    if (typeof data.terminal !== 'string') {
       throw new Error(`${PLUGIN}: Muse terminal record has no terminal value`)
     }
-    state.terminal = payload.terminal
-    if (typeof payload.text === 'string') {
-      if (Buffer.byteLength(payload.text, 'utf8') > MAX_OUTPUT_BYTES) {
+    state.terminal = data.terminal
+    if (typeof data.text === 'string') {
+      if (Buffer.byteLength(data.text, 'utf8') > MAX_OUTPUT_BYTES) {
         throw new Error(`${PLUGIN}: Muse final answer exceeded ${MAX_OUTPUT_BYTES} bytes`)
       }
-      state.terminalText = payload.text
+      state.terminalText = data.text
     }
   }
 }
 
-export async function consumeMuseJson(stream, state) {
+export async function consumeMuseJson(stream: Readable, state: OutputState) {
   stream.setEncoding('utf8')
   let pending = ''
   for await (const chunk of stream) {
@@ -130,18 +137,18 @@ export async function consumeMuseJson(stream, state) {
   if (pending.trim().length > 0) applyMuseJsonLine(pending, state)
 }
 
-function outputText(state) {
+function outputText(state: OutputState) {
   return state.terminalText ?? state.deltaChunks.join('')
 }
 
-function outputBlocks(state) {
+function outputBlocks(state: OutputState): ContentBlock[] {
   const text = outputText(state)
   return typeof text === 'string' && text.trim().length > 0
     ? [{ type: 'text', text }]
     : []
 }
 
-function outcomeFields(outcome) {
+function outcomeFields(outcome?: SubprocessOutcome) {
   const fields = []
   if (outcome?.exitCode !== null && outcome?.exitCode !== undefined) {
     fields.push(`exit code: ${outcome.exitCode}`)
@@ -152,7 +159,7 @@ function outcomeFields(outcome) {
   return fields
 }
 
-function safeDiagnostic(category, outcome) {
+function safeDiagnostic(category: string, outcome?: SubprocessOutcome) {
   const fields = [
     'product: Muse Code',
     'stage: run',
@@ -162,12 +169,12 @@ function safeDiagnostic(category, outcome) {
   return `Product subagent failure (${fields.join('; ')})`
 }
 
-function appendTail(current, chunk) {
+function appendTail(current: string, chunk: unknown) {
   const next = current + String(chunk)
   return next.length <= STDERR_LIMIT ? next : next.slice(next.length - STDERR_LIMIT)
 }
 
-export function museExecArguments(config, workspace, promptFile, mode) {
+export function museExecArguments(config: ExecConfig, workspace: string, promptFile: string, mode: string) {
   const args = ['exec', '--json']
   if (config.noSessionLog) args.push('--no-session-log')
   if (mode === 'danger-full-access') args.push('--yolo')
@@ -190,7 +197,7 @@ export function museExecArguments(config, workspace, promptFile, mode) {
   return args
 }
 
-export function museRunEnvironment(configEnv, request) {
+export function museRunEnvironment(configEnv: Record<string, string> | undefined, request?: Attribution) {
   const env = { ...(configEnv ?? {}) }
   const sessionId = request?.parent?.session?.header?.id
   if (typeof sessionId === 'string' && sessionId.length > 0) {
@@ -203,7 +210,7 @@ export function museRunEnvironment(configEnv, request) {
   return env
 }
 
-function wslEnvironment(env) {
+function wslEnvironment(env: Record<string, string>) {
   const names = Object.keys(env)
   for (const name of names) {
     if (name === 'WSLENV' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
@@ -215,7 +222,7 @@ function wslEnvironment(env) {
     : { ...env, WSLENV: names.join(':') }
 }
 
-export async function resolveInvocation(ctx, config, cwd, promptFile, signal, mode, request) {
+export async function resolveInvocation(ctx: ResolveContext, config: InvocationConfig, cwd: string, promptFile: string, signal: AbortSignal, mode: string, request?: Attribution): Promise<{ argv: string[]; env: Record<string, string> }> {
   const runEnv = museRunEnvironment(config.env, request)
   const native = async () => {
     const executable = await ctx.subprocess.resolveExecutable(config.command, runEnv, signal)
@@ -248,11 +255,11 @@ export async function resolveInvocation(ctx, config, cwd, promptFile, signal, mo
   }
 }
 
-async function removeTemp(path) {
+async function removeTemp(path: string) {
   await rm(path, { force: true, recursive: true })
 }
 
-export async function startMuseRun(ctx, request, config, cwd, mode) {
+export async function startMuseRun(ctx: RunContext, request: MuseRequest, config: RunConfig, cwd: string, mode: string) {
   // Validate the policy before creating a prompt file or spawning a child.
   museExecArguments(config, cwd, 'prompt.txt', mode)
   const prompt = textTask(request.prompt)
@@ -297,7 +304,7 @@ export async function startMuseRun(ctx, request, config, cwd, mode) {
   child.stderr?.on('data', chunk => { stderrTail = appendTail(stderrTail, chunk) })
   child.stderr?.on('error', () => {})
 
-  const stdoutTask = consumeMuseJson(child.stdout, state)
+  const stdoutTask = consumeMuseJson(child.stdout!, state)
   const localAbort = new AbortController()
   const requestCancel = () => {
     if (localAbort.signal.aborted) return
@@ -308,9 +315,9 @@ export async function startMuseRun(ctx, request, config, cwd, mode) {
   request.signal.addEventListener('abort', onAbort, { once: true })
   if (request.signal.aborted) requestCancel()
 
-  let diagnostic
-  const attempt = async () => {
-    let outcome
+  let diagnostic: string | undefined
+  const attempt = async (): Promise<SubagentResult> => {
+    let outcome: SubprocessOutcome | undefined
     try {
       ;[outcome] = await Promise.all([child.done, stdoutTask])
     } catch (error) {
@@ -385,7 +392,7 @@ export async function startMuseRun(ctx, request, config, cwd, mode) {
   }
 
   return subprocessRunHandle({
-    id: randomUUID(),
+    id: randomUUID() as SubagentRun['id'],
     result,
     signal: request.signal,
     onAbort,

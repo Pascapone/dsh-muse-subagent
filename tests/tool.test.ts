@@ -1,3 +1,5 @@
+import type { MuseContext } from '../types.js'
+import type { TestTool, TestRequest } from './fixture-types.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { apply, ORIGINAL_DESCRIPTION, ORIGINAL_PROMPT_DESCRIPTION, toolWording } from '../tool-platform.js'
@@ -18,17 +20,17 @@ test('tool wording adds WSL context only on Windows', () => {
 })
 
 test('Muse tool registers and executes a foreground run', async () => {
-  let definition
+  let definition!: TestTool
   let disposed = false
   const ctx = {
     tools: {
-      register(value) {
+      register(value: TestTool) {
         definition = value
         return () => {}
       },
     },
     subagents: {
-      async start(provider, request) {
+      async start(provider: string, request: TestRequest) {
         assert.equal(provider, 'muse')
         assert.equal(request.prompt[0].text, 'do the task')
         assert.deepEqual(request.museOptions, { sandboxed: true, workspace: '/slot' })
@@ -45,7 +47,7 @@ test('Muse tool registers and executes a foreground run', async () => {
     get() { return undefined },
   }
 
-  apply(ctx, { provider: 'muse', toolName: 'subagent_muse' })
+  apply(ctx as unknown as MuseContext, { provider: 'muse', toolName: 'subagent_muse' })
   assert.match(definition.description, /runs only inside WSL/)
   assert.match(definition.description, /\/mnt\/c\/\.\.\./)
   assert.match(definition.description, /Linux environment/)
